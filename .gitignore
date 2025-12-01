@@ -58,9 +58,6 @@ Thumbs.db
 linkedin_profiles_*.json
 outreach_emails/
 
-# Screenshots
-*.png
-
 # AI/LLM
 .claude/
 .gemini/
