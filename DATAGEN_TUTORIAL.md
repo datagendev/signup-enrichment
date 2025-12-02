@@ -69,15 +69,58 @@ contacts = client.execute_tool(
 )
 ```
 
-### 🤖 How AI Agents Use DataGen
+### 🤖 How AI Agents Guide the Process
 
-When you ask an agent to "send an email via Gmail":
+The power of DataGen is how AI agents use MCP tools to discover and learn, then write clean code for you. **You never write tool discovery code.**
+
+**Quick overview** - When you ask an agent to "send an email via Gmail":
 1. Agent uses `searchTools` MCP tool → finds "mcp_Gmail_gmail_send_email"
 2. Agent uses `getToolDetails` MCP tool → learns the schema
 3. Agent writes the clean `execute_tool` code above
 4. Your codebase stays clean - just execution, no discovery logic
 
-**The agent does the research, writes the code. You get simple, readable execution.**
+**Detailed workflow example** - Here's what happens internally:
+
+```
+User Request: "Send a welcome email to new signups"
+
+🤖 Agent's Process (using DataGen MCP tools):
+
+Step 1: Agent calls searchTools MCP tool
+Input: "send email"
+Output: ['mcp_Gmail_gmail_send_email', 'mcp_Resend_send_email', ...]
+
+Step 2: Agent calls getToolDetails MCP tool
+Input: "mcp_Gmail_gmail_send_email"
+Output: {
+  "name": "mcp_Gmail_gmail_send_email",
+  "inputSchema": {
+    "properties": {
+      "to": {"type": "string"},
+      "subject": {"type": "string"},
+      "body": {"type": "string"}
+    }
+  }
+}
+
+Step 3: Agent writes this clean code:
+```
+
+```python
+client.execute_tool(
+    "mcp_Gmail_gmail_send_email",
+    {
+        "to": user.email,
+        "subject": "Welcome to our platform!",
+        "body": f"Hi {user.name}, thanks for signing up!"
+    }
+)
+```
+
+**Key distinction:**
+*   **`searchTools` & `getToolDetails`** = MCP tools used BY agents (not code you write)
+*   **`execute_tool`** = SDK method IN code (what agents write for you)
+*   **Result**: Your codebase has zero tool discovery logic, just clean execution
 
 ### The Two-Layer Architecture
 *   **Agent layer (MCP tools)**: `searchTools`, `getToolDetails` - guides the agent
@@ -85,6 +128,14 @@ When you ask an agent to "send an email via Gmail":
 *   **Gateway layer**: DataGen handles authentication for all connected MCP servers
 
 Notice how we used Gmail and Neon PostgreSQL with the same client? That's the MCP gateway - you connect services once in DataGen's UI, and all their tools become available through one authenticated client. No credential juggling in code.
+
+### Benefits for Vibe Coding
+*   **Agents self-guide** without hardcoded tool knowledge
+*   **Code stays simple** and readable - no discovery logic cluttering your codebase
+*   **Add new MCP servers** → agents discover them automatically
+*   **Change tools** (Neon → Supabase) → agent adapts without code changes
+
+**From the actual app**: When building the signup-enrichment dashboard shown in the figures above, the agent used `searchTools` to find `mcp_Neon_run_sql`, used `getToolDetails` to learn the schema, then wrote clean SQL execution code. The final codebase has no discovery logic - just `client.execute_tool()` calls.
 
 ## 3. The MCP Gateway: One Auth to Rule Them All
 
@@ -163,63 +214,6 @@ if st.button("Send"):
 - ✅ Same code pattern for any tool
 
 **Adaptation note**: This example uses a CRM workflow, but the same pattern applies to any use case: e-commerce analytics, customer support dashboards, data pipelines, etc. Just swap in different tools and SQL queries for your specific needs.
-
-## 5. How AI Agents Guide Themselves with DataGen
-
-The power of DataGen isn't just the SDK - it's how AI agents use MCP tools to discover and learn, then write clean code for you. **You never write tool discovery code.**
-
-### The Agent's Internal Workflow
-
-When you ask an agent: *"Send a welcome email to new signups"*
-
-🤖 Agent's Process (using DataGen MCP tools):
-
-Step 1: Agent calls searchTools MCP tool
-```
-Input: "send email"
-Output: ['mcp_Gmail_gmail_send_email', 'mcp_Resend_send_email', ...]
-```
-
-Step 2: Agent calls getToolDetails MCP tool
-```
-Input: "mcp_Gmail_gmail_send_email"
-Output: {
-  "name": "mcp_Gmail_gmail_send_email",
-  "inputSchema": {
-    "properties": {
-      "to": {"type": "string"},
-      "subject": {"type": "string"},
-      "body": {"type": "string"}
-    }
-  }
-}
-```
-
-Step 3: Agent writes this clean code
-```python
-# Python code
-client.execute_tool(
-    "mcp_Gmail_gmail_send_email",
-    {
-        "to": user.email,
-        "subject": "Welcome to our platform!",
-        "body": f"Hi {user.name}, thanks for signing up!"
-    }
-)
-```
-
-### Key Distinction
-*   **`searchTools` & `getToolDetails`** = MCP tools used BY agents (not code you write)
-*   **`execute_tool`** = SDK method IN code (what agents write for you)
-*   **Result**: Your codebase has zero tool discovery logic, just clean execution
-
-### Benefits for Vibe Coding
-*   Agents self-guide without hardcoded tool knowledge
-*   Your code stays simple and readable
-*   Add new MCP servers → agents discover them automatically
-*   Change tools (Neon → Supabase) → agent adapts without code changes
-
-**From the actual app**: When building the signup-enrichment dashboard shown above, the agent used `searchTools` to find `mcp_Neon_run_sql`, used `getToolDetails` to learn the schema, then wrote clean SQL execution code. The final codebase has no discovery logic - just `client.execute_tool()` calls.
 
 ---
 
