@@ -81,16 +81,18 @@ The power of DataGen is how AI agents use MCP tools to discover and learn, then 
 
 **Detailed workflow example** - Here's what happens internally:
 
-```
 User Request: "Send a welcome email to new signups"
 
 🤖 Agent's Process (using DataGen MCP tools):
 
 Step 1: Agent calls searchTools MCP tool
+```
 Input: "send email"
 Output: ['mcp_Gmail_gmail_send_email', 'mcp_Resend_send_email', ...]
+```
 
 Step 2: Agent calls getToolDetails MCP tool
+```
 Input: "mcp_Gmail_gmail_send_email"
 Output: {
   "name": "mcp_Gmail_gmail_send_email",
@@ -102,11 +104,11 @@ Output: {
     }
   }
 }
-
-Step 3: Agent writes this clean code:
 ```
 
+Step 3: Agent writes this clean code:
 ```python
+# Python code
 client.execute_tool(
     "mcp_Gmail_gmail_send_email",
     {
