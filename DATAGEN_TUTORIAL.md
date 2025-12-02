@@ -7,7 +7,7 @@ This tutorial shows how developers and AI agents can rapidly build data-rich app
 
 ![DataGen App Demo](app.gif)
 
-*Figure 2: Claude Code easily integrated LinkedIn, Neon database, and Gmail with one client - no messy SDK setup or OAuth configuration*
+*Figure 2: A real-world CRM dashboard built with DataGen - easily integrate Neon, Gmail, and LinkedIn with one client*
 
 ## 1. The DataGen Advantage for Vibe Coders
 
