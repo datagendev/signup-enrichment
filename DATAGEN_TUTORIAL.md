@@ -1,25 +1,36 @@
-# Building Apps with DataGen: A Guide for AI Agents
+# Building Apps with DataGen: A Guide for Vibe Coders
 
-This tutorial demonstrates how AI agents can leverage the DataGen SDK and MCP tools to rapidly build, authenticate, and deploy applications. By abstracting away complex authentication and providing a unified tool interface, DataGen streamlines the entire development lifecycle.
+This tutorial shows how developers and AI agents can rapidly build data-rich applications without wrestling with OAuth, API docs, or SDK complexity. With DataGen, integrated services become simple function calls - write `client.execute_tool()` instead of reading 12 pages of API documentation.
 
 ![DataGen Workflow Diagram](datagen_workflow_flowchart.png)
-*Figure 1: A Streamlit application built using data enriched via DataGen workflows.*
+*Figure 1: A real-world CRM dashboard built with DataGen - uses PostgreSQL, Gmail, and LinkedIn as if they were local functions*
 
 ![DataGen App Demo](app.gif)
-*Figure 2: DataGen application in action - demonstrating the workflow.*
+*Figure 2: The app in action - from database queries to email sending, all through the same unified interface*
 
-## 1. The DataGen Advantage for Agents
+## 1. The DataGen Advantage for Vibe Coders
 
-For an AI agent, the biggest hurdles in building functional apps are often:
-*   **Authentication**: Managing OAuth tokens for multiple services (Gmail, GitHub, LinkedIn, etc.).
-*   **Tool Discovery**: Knowing what tools are available and how to use them.
-*   **Execution**: reliably running code and tools in a secure environment.
+The biggest hurdles when building data-rich applications are:
+*   **Authentication Hell**: Setting up OAuth flows, managing tokens, handling refreshes for every service
+*   **Tool Discovery**: Reading API docs, finding the right SDK, understanding rate limits
+*   **MCP Server Management**: Adding new MCP servers means dealing with each one's authentication separately
 
-DataGen solves this by providing **Managed MCP Servers**. You (the agent) don't need to handle OAuth flows. You simply use the tools; DataGen handles the connections.
+DataGen solves this with two key features:
+
+### 1. MCP Gateway with Unified Auth
+DataGen MCP Server acts as a gateway that handles authentication for ALL connected MCP servers. Add Gmail, LinkedIn, Neon, any MCP server - DataGen handles the auth once, your code never touches credentials.
+
+### 2. Built-in Tool Discovery via MCP Tools
+*   AI agents use `searchTools` MCP tool (NOT code) to find available tools
+*   AI agents use `getToolDetails` MCP tool (NOT code) to understand tool schemas
+*   Agents guide themselves → write clean execution code with just `client.execute_tool()`
+*   **Human developers never write discovery code** - agents handle that part
+
+**The result**: For AI agents helping developers, use DataGen's `searchTools` and `getToolDetails` MCP tools to discover what's available, then write simple execution code. For human developers, just use `client.execute_tool()` with the tool name the agent found. DataGen makes external services feel like native Python functions.
 
 ## 2. Using the DataGen SDK
 
-The `datagen-python-sdk` is your bridge to this ecosystem. It allows you to execute any installed MCP tool directly from your Python code.
+The `datagen-python-sdk` is your bridge to this ecosystem. Your code is just execution - agents handle the discovery.
 
 ### Installation
 
@@ -27,95 +38,196 @@ The `datagen-python-sdk` is your bridge to this ecosystem. It allows you to exec
 pip install datagen-python-sdk
 ```
 
-### Basic Workflow
-
-The core workflow for an agent is:
-1.  **Search** for the right tool.
-2.  **Inspect** the tool's details (schema).
-3.  **Execute** the tool.
+### The Clean Developer Experience
 
 ```python
-import os
-from datagen_sdk import DatagenClient, DatagenAuthError
+from datagen_sdk import DatagenClient
 
-# 1. Setup Client
-# Ensure DATAGEN_API_KEY is set in your environment
 client = DatagenClient()
 
-def enrich_user_data(email):
-    try:
-        # 2. Execute a Tool
-        # We use the 'execute_tool' method for any installed MCP tool.
-        # Here, we might use a custom tool or a standard one like a CRM lookup.
-        
-        # Example: looking up a user in a connected system
-        user_profile = client.execute_tool(
-            "mcp_HubSpot_search_contact", 
-            {"query": email}
-        )
-        
-        return user_profile
-        
-    except DatagenAuthError:
-        print("Error: The HubSpot MCP server is not connected. Please connect it in DataGen settings.")
-        return None
+# Send an email - that's all the code you need
+client.execute_tool(
+    "mcp_Gmail_gmail_send_email",
+    {
+        "to": "user@example.com",
+        "subject": "Welcome!",
+        "body": "Thanks for signing up"
+    }
+)
 
-# Example usage
-profile = enrich_user_data("jane@example.com")
-print(f"Found profile: {profile}")
+# Query your database - same simple pattern
+contacts = client.execute_tool(
+    "mcp_Neon_run_sql",
+    {
+        "params": {
+            "sql": "SELECT * FROM crm WHERE priority_score > 75",
+            "projectId": "your-project-id",
+            "databaseName": "your-db"
+        }
+    }
+)
 ```
 
-## 3. Simplified Authentication
+### 🤖 How AI Agents Use DataGen
 
-The most powerful feature for agents is **Zero-Touch Authentication**.
+When you ask an agent to "send an email via Gmail":
+1. Agent uses `searchTools` MCP tool → finds "mcp_Gmail_gmail_send_email"
+2. Agent uses `getToolDetails` MCP tool → learns the schema
+3. Agent writes the clean `execute_tool` code above
+4. Your codebase stays clean - just execution, no discovery logic
 
-*   **Traditional Way:** Agent asks user for Client ID, Client Secret, scopes, redirects... (Failure prone).
-*   **DataGen Way:**
-    1.  Agent tries to use a tool (e.g., `mcp_Gmail_send_email`).
-    2.  If it fails with `401`, the Agent tells the user: *"Please connect Gmail in your DataGen dashboard."*
-    3.  User clicks one button in the UI.
-    4.  Agent retries and succeeds.
+**The agent does the research, writes the code. You get simple, readable execution.**
+
+### The Two-Layer Architecture
+*   **Agent layer (MCP tools)**: `searchTools`, `getToolDetails` - guides the agent
+*   **Code layer (SDK)**: `execute_tool` - clean, simple, no auth logic
+*   **Gateway layer**: DataGen handles authentication for all connected MCP servers
+
+Notice how we used Gmail and Neon PostgreSQL with the same client? That's the MCP gateway - you connect services once in DataGen's UI, and all their tools become available through one authenticated client. No credential juggling in code.
+
+## 3. The MCP Gateway: One Auth to Rule Them All
+
+Traditional MCP setup requires managing authentication for each server separately. DataGen acts as a gateway - you authenticate once per service in the UI, and all connected MCP servers' tools become available through one client.
+
+### The Traditional Way
+```python
+# Managing multiple MCP server connections
+gmail_client = MCPClient("gmail-server-url", gmail_auth_token)
+neon_client = MCPClient("neon-server-url", neon_api_key)
+linkedin_client = MCPClient("linkedin-server-url", linkedin_token)
+
+# Different clients, different auth, different patterns...
+```
+
+### The DataGen Way
+```python
+# One client for everything
+client = DatagenClient()
+
+# All these work through the same gateway
+client.execute_tool("mcp_Gmail_gmail_send_email", {...})
+client.execute_tool("mcp_Neon_run_sql", {...})
+client.execute_tool("get_linkedin_person_data", {...})
+```
+
+### Connection Flow
+**MCP Servers** (Gmail, Neon, LinkedIn, etc.) → **DataGen Gateway** (handles auth) → **Your Code** (uses tools)
+
+**How it works:**
+1. User connects Gmail MCP server in DataGen dashboard (one OAuth click)
+2. User connects Neon MCP server in DataGen dashboard (enters credentials once)
+3. Developer/agent can now use ALL tools from both servers with zero auth code
 
 You never touch the credentials.
 
-## 4. Building the UI (Streamlit Example)
+## 4. Building Apps with DataGen: From Idea to Working Dashboard
 
-Agents can generate full UI code that utilizes these SDK calls. Below is a snippet of how an agent might write a Streamlit app that uses DataGen to fetch data.
+Here's a simplified version of the real CRM dashboard shown in the figures above. Notice how clean the code is - no database connection setup, no OAuth flows, just execution.
 
 ```python
 import streamlit as st
 from datagen_sdk import DatagenClient
 
-st.title("User Enrichment Dashboard")
+st.title("CRM Dashboard")
+client = DatagenClient()
 
-email = st.text_input("Enter Email to Enrich")
+# Get high-priority contacts from your database
+if st.button("Load Contacts"):
+    contacts = client.execute_tool(
+        "mcp_Neon_run_sql",
+        {"params": {
+            "sql": "SELECT * FROM crm WHERE priority_score > 75 ORDER BY priority_score DESC",
+            "projectId": "your-project",
+            "databaseName": "your-db"
+        }}
+    )
 
-if st.button("Enrich"):
-    client = DatagenClient()
-    
-    with st.spinner("Fetching data via DataGen..."):
-        try:
-            # Agent calls a DataGen workflow that combines LinkedIn + Clearbit
-            result = client.execute_tool("mcp_Enrichment_full_profile", {"email": email})
-            
-            st.success("Enrichment Complete!")
-            st.json(result)
-            
-        except Exception as e:
-            st.error(f"Enrichment failed: {e}")
+    st.dataframe(contacts)
 
-# This simple code block connects a frontend directly to complex 
-# backend workflows managed by DataGen.
+# Send a follow-up email
+selected_email = st.selectbox("Select contact", [...])
+message = st.text_area("Compose email")
+
+if st.button("Send"):
+    client.execute_tool(
+        "mcp_Gmail_gmail_send_email",
+        {"to": selected_email, "subject": "Follow-up", "body": message}
+    )
+    st.success("Email sent!")
 ```
 
-## 5. Documentation on Demand
+**Key benefits:**
+- ✅ No database connection setup needed
+- ✅ No Gmail OAuth flow required
+- ✅ Same code pattern for any tool
 
-Agents can self-service documentation using the built-in MCP tools:
+**Adaptation note**: This example uses a CRM workflow, but the same pattern applies to any use case: e-commerce analytics, customer support dashboards, data pipelines, etc. Just swap in different tools and SQL queries for your specific needs.
 
-*   **`datagen-sdk-doc`**: Returns the full Python SDK guide (like the one you are reading).
-*   **`searchTools`**: Finds tools by functionality (e.g., "Find tools for sending emails").
-*   **`getToolDetails`**: Returns the exact JSON schema for a tool, ensuring your code is always syntactically correct.
+## 5. How AI Agents Guide Themselves with DataGen
+
+The power of DataGen isn't just the SDK - it's how AI agents use MCP tools to discover and learn, then write clean code for you. **You never write tool discovery code.**
+
+### The Agent's Internal Workflow
+
+When you ask an agent: *"Send a welcome email to new signups"*
+
+```
+🤖 Agent's Process (using DataGen MCP tools):
+
+Step 1: Agent calls searchTools MCP tool
+Input: "send email"
+Output: ['mcp_Gmail_gmail_send_email', 'mcp_Resend_send_email', ...]
+
+Step 2: Agent calls getToolDetails MCP tool
+Input: "mcp_Gmail_gmail_send_email"
+Output: {
+  "name": "mcp_Gmail_gmail_send_email",
+  "inputSchema": {
+    "properties": {
+      "to": {"type": "string"},
+      "subject": {"type": "string"},
+      "body": {"type": "string"}
+    }
+  }
+}
+
+Step 3: Agent writes this clean code:
+```
+
+```python
+client.execute_tool(
+    "mcp_Gmail_gmail_send_email",
+    {
+        "to": user.email,
+        "subject": "Welcome to our platform!",
+        "body": f"Hi {user.name}, thanks for signing up!"
+    }
+)
+```
+
+### Key Distinction
+*   **`searchTools` & `getToolDetails`** = MCP tools used BY agents (not code you write)
+*   **`execute_tool`** = SDK method IN code (what agents write for you)
+*   **Result**: Your codebase has zero tool discovery logic, just clean execution
+
+### Benefits for Vibe Coding
+*   Agents self-guide without hardcoded tool knowledge
+*   Your code stays simple and readable
+*   Add new MCP servers → agents discover them automatically
+*   Change tools (Neon → Supabase) → agent adapts without code changes
+
+**From the actual app**: When building the signup-enrichment dashboard shown above, the agent used `searchTools` to find `mcp_Neon_run_sql`, used `getToolDetails` to learn the schema, then wrote clean SQL execution code. The final codebase has no discovery logic - just `client.execute_tool()` calls.
 
 ---
 
-**Summary:** DataGen allows agents to focus on **logic and UI construction** (like the Streamlit app above) while offloading **integration and authentication complexity** to the DataGen platform.
+## Summary
+
+DataGen transforms external services into code that feels native. Whether you're building a CRM dashboard, an analytics pipeline, or a customer engagement system, the pattern is the same: `client.execute_tool()` with the right tool name. No OAuth flows. No SDK confusion. No integration hell.
+
+**For vibe coders and the AI agents helping them**: describe what you want to build, use DataGen's tools-as-code, and ship faster.
+
+**The DataGen advantage**:
+- One client, one auth flow, unlimited MCP servers
+- Agents use MCP tools to discover, then write clean execution code
+- Your codebase stays simple - just `execute_tool()` calls
+- Add new services → agents adapt automatically
