@@ -191,11 +191,11 @@ Output: {
     }
   }
 }
-
-Step 3: Agent writes this clean code:
 ```
 
+
 ```python
+#Step 3: Agent writes this clean code:
 client.execute_tool(
     "mcp_Gmail_gmail_send_email",
     {
