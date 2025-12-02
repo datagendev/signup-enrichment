@@ -3,7 +3,7 @@
 This tutorial shows how developers and AI agents can rapidly build data-rich applications without wrestling with OAuth, API docs, or SDK complexity. With DataGen, integrated services become simple function calls - write `client.execute_tool()` instead of reading 12 pages of API documentation.
 
 ![DataGen Workflow Diagram](datagen_workflow_flowchart.png)
-*Figure 1: A real-world CRM dashboard built with DataGen - uses PostgreSQL, Gmail, and LinkedIn as if they were local functions*
+*Figure 1: DataGen's MCP Gateway architecture - one client handles auth and routing to Gmail, Neon, LinkedIn. Write simple execute_tool() calls, skip all SDK setup*
 
 ![DataGen App Demo](app.gif)
 
