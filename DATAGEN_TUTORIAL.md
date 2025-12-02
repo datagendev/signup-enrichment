@@ -31,7 +31,7 @@ DataGen MCP Server acts as a gateway that handles authentication for ALL connect
 
 ## 2. Using the DataGen SDK
 
-The `datagen-python-sdk` is your bridge to this ecosystem. Your code is just execution - agents handle the discovery.
+The `datagen-python-sdk` is your bridge to this ecosystem. No Gmail SDK setup, no LinkedIn API wrappers, no OAuth configuration code - just execution.
 
 ### Installation
 
@@ -71,13 +71,13 @@ contacts = client.execute_tool(
 
 ### 🤖 How AI Agents Guide the Process
 
-The power of DataGen is how AI agents use MCP tools to discover and learn, then write clean code for you. **You never write tool discovery code.**
+The power of DataGen is how AI agents use MCP tools to discover and learn, then write clean code for you. **No custom integration code needed** - no Gmail SDK, no LinkedIn API setup, no OAuth flows.
 
 **Quick overview** - When you ask an agent to "send an email via Gmail":
 1. Agent uses `searchTools` MCP tool → finds "mcp_Gmail_gmail_send_email"
 2. Agent uses `getToolDetails` MCP tool → learns the schema
 3. Agent writes the clean `execute_tool` code above
-4. Your codebase stays clean - just execution, no discovery logic
+4. Your codebase stays clean - no Gmail SDK imports, no OAuth setup, no API wrappers
 
 **Detailed workflow example** - Here's what happens internally:
 
@@ -118,9 +118,34 @@ client.execute_tool(
 ```
 
 **Key distinction:**
-*   **`searchTools` & `getToolDetails`** = MCP tools used BY agents (not code you write)
-*   **`execute_tool`** = SDK method IN code (what agents write for you)
-*   **Result**: Your codebase has zero tool discovery logic, just clean execution
+*   **`searchTools` & `getToolDetails`** = MCP tools used BY agents to find the right tool
+*   **`execute_tool`** = The ONLY code you write - no SDK setup, no API wrappers, no OAuth
+*   **Result**: Your codebase skips all the integration boilerplate - just simple `execute_tool()` calls
+
+**Traditional way** (what you avoid):
+```python
+# Without DataGen - lots of integration code
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+import linkedin_api
+
+# Gmail setup
+creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+gmail_service = build('gmail', 'v1', credentials=creds)
+message = MIMEText('email body')
+# ... 20+ more lines of Gmail API code
+
+# LinkedIn setup
+linkedin = linkedin_api.Linkedin(username, password)
+# ... custom API wrapper code
+```
+
+**DataGen way** (what you write):
+```python
+# With DataGen - just execution
+client.execute_tool("mcp_Gmail_gmail_send_email", {...})
+client.execute_tool("get_linkedin_person_data", {...})
+```
 
 ### The Two-Layer Architecture
 *   **Agent layer (MCP tools)**: `searchTools`, `getToolDetails` - guides the agent
@@ -130,12 +155,12 @@ client.execute_tool(
 Notice how we used Gmail and Neon PostgreSQL with the same client? That's the MCP gateway - you connect services once in DataGen's UI, and all their tools become available through one authenticated client. No credential juggling in code.
 
 ### Benefits for Vibe Coding
-*   **Agents self-guide** without hardcoded tool knowledge
-*   **Code stays simple** and readable - no discovery logic cluttering your codebase
-*   **Add new MCP servers** → agents discover them automatically
-*   **Change tools** (Neon → Supabase) → agent adapts without code changes
+*   **No SDK hell** - skip Gmail SDK, LinkedIn API, OAuth setup entirely
+*   **Code stays simple** - no integration boilerplate cluttering your codebase
+*   **Agents self-guide** - they find and learn tools, write clean execution code
+*   **Swap services easily** - change Neon → Supabase without rewriting integration code
 
-**From the actual app**: When building the signup-enrichment dashboard shown in the figures above, the agent used `searchTools` to find `mcp_Neon_run_sql`, used `getToolDetails` to learn the schema, then wrote clean SQL execution code. The final codebase has no discovery logic - just `client.execute_tool()` calls.
+**From the actual app**: When building the signup-enrichment dashboard shown in the figures above, there's zero Gmail SDK code, zero LinkedIn API wrappers, zero OAuth flows. Just clean `client.execute_tool()` calls. The agent handled tool discovery; the codebase stayed focused on business logic.
 
 ## 3. The MCP Gateway: One Auth to Rule Them All
 
@@ -219,12 +244,12 @@ if st.button("Send"):
 
 ## Summary
 
-DataGen transforms external services into code that feels native. Whether you're building a CRM dashboard, an analytics pipeline, or a customer engagement system, the pattern is the same: `client.execute_tool()` with the right tool name. No OAuth flows. No SDK confusion. No integration hell.
+DataGen eliminates integration boilerplate. Whether you're building a CRM dashboard, an analytics pipeline, or a customer engagement system, the pattern is the same: `client.execute_tool()` with the right tool name. No Gmail SDK. No LinkedIn API wrappers. No OAuth configuration code. No integration hell.
 
-**For vibe coders and the AI agents helping them**: describe what you want to build, use DataGen's tools-as-code, and ship faster.
+**For vibe coders and the AI agents helping them**: describe what you want to build, skip the SDK setup, and ship faster.
 
 **The DataGen advantage**:
-- One client, one auth flow, unlimited MCP servers
-- Agents use MCP tools to discover, then write clean execution code
-- Your codebase stays simple - just `execute_tool()` calls
-- Add new services → agents adapt automatically
+- **Skip SDK hell**: No more `pip install google-api-python-client`, `npm install linkedin-api-sdk`, or OAuth configuration
+- **One client for everything**: Gmail, LinkedIn, Neon, Slack - same simple pattern
+- **Agents write the code**: They discover tools via MCP, write clean `execute_tool()` calls
+- **Swap services easily**: Change providers without rewriting integration code
