@@ -6,8 +6,8 @@ This tutorial shows how developers and AI agents can rapidly build data-rich app
 *Figure 1: A real-world CRM dashboard built with DataGen - uses PostgreSQL, Gmail, and LinkedIn as if they were local functions*
 
 ![DataGen App Demo](app.gif)
-*Figure 2: The app in action - from database queries to email sending, all through the same unified interface*
 
+*Figure 2: The app in action - from database queries to email sending, all through the same unified interface*
 
 ## 1. The DataGen Advantage for Vibe Coders
 
