@@ -8,6 +8,7 @@ This tutorial shows how developers and AI agents can rapidly build data-rich app
 ![DataGen App Demo](app.gif)
 *Figure 2: The app in action - from database queries to email sending, all through the same unified interface*
 
+
 ## 1. The DataGen Advantage for Vibe Coders
 
 The biggest hurdles when building data-rich applications are:
