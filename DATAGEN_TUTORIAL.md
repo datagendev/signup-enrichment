@@ -5,6 +5,9 @@ This tutorial demonstrates how AI agents can leverage the DataGen SDK and MCP to
 ![DataGen Workflow Diagram](datagen_workflow_flowchart.png)
 *Figure 1: A Streamlit application built using data enriched via DataGen workflows.*
 
+![DataGen App Demo](app.gif)
+*Figure 2: DataGen application in action - demonstrating the workflow.*
+
 ## 1. The DataGen Advantage for Agents
 
 For an AI agent, the biggest hurdles in building functional apps are often:
