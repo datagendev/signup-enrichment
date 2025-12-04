@@ -1,0 +1,22 @@
+# Render Blueprint for scheduled Claude Agent SDK job
+# See: https://render.com/docs/blueprint-spec
+
+services:
+  - type: cron
+    name: taiwan-poem-generator
+    runtime: python
+    schedule: "0 9 * * *"  # Run daily at 9 AM UTC
+    buildCommand: pip install -r requirements.txt
+    startCommand: python generate_taiwan_poem.py
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false  # Set in Render dashboard
+      - key: GITHUB_TOKEN
+        sync: false  # GitHub Personal Access Token with repo write access
+      - key: GITHUB_REPO
+        sync: false  # e.g., "username/repo-name"
+      - key: GIT_USER_EMAIL
+        sync: false  # Optional: your GitHub email for linked commits
+      - key: GIT_USER_NAME
+        sync: false  # Optional: your name for commits
+
