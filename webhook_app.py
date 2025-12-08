@@ -1,4 +1,7 @@
+import json
+import logging
 import os
+import uuid
 from pathlib import Path
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
@@ -11,6 +14,10 @@ PROMPT_PATH = Path(__file__).resolve().parent / ".claude" / "agents" / "enrichme
 PROJECT_ID = "rough-base-02149126"
 DATABASE_NAME = "datagen"
 
+# Structured logger to keep Render logs easy to filter and parse
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+logger = logging.getLogger("enrichment_webhook")
+
 
 class SignupPayload(BaseModel):
     email: str
@@ -22,16 +29,17 @@ def run_enrichment_task(email: str):
     """
     Background task to enrich the user profile using Anthropic + Datagen MCP.
     """
-    print(f"🚀 Starting enrichment for: {email}")
+    request_id = str(uuid.uuid4())
+    log_event("start", request_id=request_id, email=email)
     
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
     datagen_key = os.getenv("DATAGEN_API_KEY")
 
     if not anthropic_key:
-        print("❌ Error: ANTHROPIC_API_KEY not set")
+        log_event("config_error", request_id=request_id, error="ANTHROPIC_API_KEY not set")
         return
     if not datagen_key:
-        print("❌ Error: DATAGEN_API_KEY not set")
+        log_event("config_error", request_id=request_id, error="DATAGEN_API_KEY not set")
         return
 
     client = Anthropic(api_key=anthropic_key)
@@ -55,8 +63,10 @@ Output requirements:
 """
 
     try:
-        # Use the newest mid-tier model; Sonnet 4.5 alias avoids 404s on older snapshots
-        response = client.beta.messages.create(
+        chunks: list[str] = []
+
+        # Stream the response so Render logs show progress in real time
+        with client.beta.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=1200,
             system=system_prompt,
@@ -70,14 +80,35 @@ Output requirements:
                 }
             ],
             betas=["mcp-client-2025-04-04"],
-        )
+            stream=True,
+        ) as stream:
+            for event in stream:
+                if getattr(event, "type", "") == "content_block_delta":
+                    delta = getattr(event, "delta", None)
+                    if delta and getattr(delta, "text", None):
+                        chunk = delta.text
+                        chunks.append(chunk)
+                        log_event(
+                            "agent_chunk",
+                            request_id=request_id,
+                            email=email,
+                            chunk=chunk[:500],
+                            truncated=len(chunk) > 500,
+                        )
 
-        print(f"✅ Enrichment completed for {email}")
-        if response and response.content:
-            print(f"📝 Agent Response:\n{response.content[0].text}")
+        agent_text = "".join(chunks)
+        log_event("success", request_id=request_id, email=email)
+        if agent_text:
+            log_event(
+                "agent_response",
+                request_id=request_id,
+                email=email,
+                text=agent_text[:2000],
+                truncated=len(agent_text) > 2000,
+            )
 
     except Exception as e:
-        print(f"❌ Error during enrichment task for {email}: {e}")
+        log_event("error", request_id=request_id, email=email, error=str(e))
 
 @app.post("/webhook/signup")
 async def receive_signup(payload: SignupPayload, background_tasks: BackgroundTasks):
@@ -102,3 +133,9 @@ def _load_prompt() -> str:
         return raw.split(sentinel, 1)[0].rstrip()
     except FileNotFoundError:
         return "You are an enrichment SOP executor. Follow the documented seven-step process to find and validate a LinkedIn profile for a single email, then classify the method and update CRM via Datagen MCP."
+
+
+def log_event(event: str, **data):
+    """Emit a single-line JSON log for easier filtering in Render."""
+    payload = {"event": event, **data}
+    logger.info(json.dumps(payload))
