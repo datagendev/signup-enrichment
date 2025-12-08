@@ -89,7 +89,7 @@ Output requirements:
 
         # Stream the response so Render logs show progress in real time
         # Non-streaming to avoid Anthropic SDK MCP streaming parse errors; log full response
-        response = client.messages.create(
+        response = client.beta.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=1200,
             system=system_prompt,
