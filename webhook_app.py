@@ -102,7 +102,6 @@ Output requirements:
                     "authorization_token": datagen_key,
                 }
             ],
-            tools=[{"type": "mcp_toolset", "mcp_server_name": "datagen"}],
             betas=["mcp-client-2025-04-04"],
             stream=True,
         ) as stream:
