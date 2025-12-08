@@ -151,6 +151,12 @@ def stream_raw_mcp_iter(request_id: str, email: str, system_prompt: str, user_me
                 "authorization_token": datagen_key.strip(),
             }
         ],
+        "tools": [
+            {
+                "type": "mcp_toolset",
+                "mcp_server_name": "datagen",
+            }
+        ],
         "stream": True,
     }
 
