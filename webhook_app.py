@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
 from anthropic import Anthropic
+import httpx
 
 # Optional LangSmith tracing
 try:
@@ -89,38 +90,18 @@ Output requirements:
 
         # Stream the response so Render logs show progress in real time
         # Non-streaming to avoid Anthropic SDK MCP streaming parse errors; log full response
-        response = client.beta.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=1200,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
-            mcp_servers=[
-                {
-                    "type": "url",
-                    "url": "https://mcp.datagen.dev/mcp",
-                    "name": "datagen",
-                    "authorization_token": datagen_key,
-                }
-            ],
-            betas=["mcp-client-2025-04-04"],
-            stream=False,
+        # Stream raw SSE to avoid SDK MCP block parsing issues
+        agent_text = stream_raw_mcp(
+            request_id=request_id,
+            email=email,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            anthropic_key=anthropic_key,
+            datagen_key=datagen_key,
         )
 
-        # Log the raw response (JSON-safe)
-        try:
-            log_event(
-                "agent_raw_response",
-                request_id=request_id,
-                email=email,
-                response_json=response.model_dump(),
-            )
-        except Exception:
-            pass
-
-        if response and response.content:
-            for block in response.content:
-                if getattr(block, "type", "") == "text" and getattr(block, "text", None):
-                    chunks.append(block.text)
+        if agent_text:
+            chunks.append(agent_text)
 
         agent_text = "".join(chunks)
         log_event("success", request_id=request_id, email=email)
@@ -176,6 +157,64 @@ def log_event(event: str, **data):
     """Emit a single-line JSON log for easier filtering in Render."""
     payload = {"event": event, **data}
     logger.info(json.dumps(payload))
+
+
+def stream_raw_mcp(request_id: str, email: str, system_prompt: str, user_message: str, anthropic_key: str, datagen_key: str) -> str:
+    """Stream raw SSE from Anthropic MCP and return concatenated text."""
+    url = "https://api.anthropic.com/v1/messages"
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-Key": anthropic_key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "mcp-client-2025-04-04",
+    }
+    body = {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 1200,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": user_message}],
+        "mcp_servers": [
+            {
+                "type": "url",
+                "url": "https://mcp.datagen.dev/mcp",
+                "name": "datagen",
+                "authorization_token": datagen_key,
+            }
+        ],
+        "stream": True,
+    }
+
+    chunks: list[str] = []
+    try:
+        with httpx.Client(timeout=120) as client:
+            with client.stream("POST", url, headers=headers, json=body) as r:
+                for line in r.iter_lines():
+                    if not line or not line.startswith(b"data:"):
+                        continue
+                    data = line[len(b"data:"):].strip()
+                    if data == b"[DONE]":
+                        break
+                    try:
+                        payload = json.loads(data)
+                        log_event("agent_raw_chunk", request_id=request_id, email=email, chunk=payload)
+                        if payload.get("type") == "content_block_delta":
+                            delta = payload.get("delta", {})
+                            text = delta.get("text")
+                            if text:
+                                chunks.append(text)
+                                log_event(
+                                    "agent_chunk",
+                                    request_id=request_id,
+                                    email=email,
+                                    chunk=text[:500],
+                                    truncated=len(text) > 500,
+                                )
+                    except Exception as e:
+                        log_event("agent_chunk_parse_error", request_id=request_id, email=email, error=str(e))
+                        continue
+    except Exception as e:
+        log_event("http_stream_error", request_id=request_id, email=email, error=str(e))
+    return "".join(chunks)
 
 
 def start_trace(request_id: str, email: str):
