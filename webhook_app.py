@@ -136,7 +136,7 @@ def stream_raw_mcp_iter(request_id: str, email: str, system_prompt: str, user_me
         "X-API-Key": anthropic_key.strip(),
         "anthropic-version": "2023-06-01",
         # Enable MCP connector + advanced toolset gating to allow mcp_toolset configs
-        "anthropic-beta": "mcp-client-2025-04-04,advanced-tool-use-2025-11-20",
+        "anthropic-beta": "mcp-client-2025-11-20,advanced-tool-use-2025-11-20",
     }
     body = {
         "model": "claude-sonnet-4-5",
