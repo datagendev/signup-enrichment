@@ -2,10 +2,17 @@ import json
 import logging
 import os
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
 from anthropic import Anthropic
+
+# Optional LangSmith tracing
+try:
+    from langsmith import Client as LangSmithClient  # type: ignore
+except ImportError:  # pragma: no cover - optional dependency
+    LangSmithClient = None
 
 app = FastAPI()
 
@@ -31,6 +38,8 @@ def run_enrichment_task(email: str):
     """
     request_id = str(uuid.uuid4())
     log_event("start", request_id=request_id, email=email)
+
+    trace_ctx = start_trace(request_id=request_id, email=email)
     
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
     datagen_key = os.getenv("DATAGEN_API_KEY")
@@ -107,8 +116,19 @@ Output requirements:
                 truncated=len(agent_text) > 2000,
             )
 
+        finish_trace(
+            trace_ctx,
+            status="success",
+            outputs={
+                "email": email,
+                "agent_response": agent_text[:2000],
+                "truncated": len(agent_text) > 2000,
+            },
+        )
+
     except Exception as e:
         log_event("error", request_id=request_id, email=email, error=str(e))
+        finish_trace(trace_ctx, status="error", error=str(e))
 
 @app.post("/webhook/signup")
 async def receive_signup(payload: SignupPayload, background_tasks: BackgroundTasks):
@@ -139,3 +159,43 @@ def log_event(event: str, **data):
     """Emit a single-line JSON log for easier filtering in Render."""
     payload = {"event": event, **data}
     logger.info(json.dumps(payload))
+
+
+def start_trace(request_id: str, email: str):
+    """Start a LangSmith trace if configured."""
+    if not LangSmithClient or not os.getenv("LANGSMITH_API_KEY"):
+        return None
+    try:
+        client = LangSmithClient()
+        project = os.getenv("LANGSMITH_PROJECT", "signup-enrichment")
+        run_id = client.create_run(
+            name="enrichment-webhook",
+            run_type="chain",
+            inputs={"email": email},
+            project=project,
+            start_time=datetime.now(timezone.utc),
+            tags=["webhook", "anthropic", "mcp"],
+            reference_example_id=request_id,
+        )
+        return {"client": client, "run_id": run_id, "start_time": datetime.now(timezone.utc)}
+    except Exception as e:  # best-effort
+        log_event("langsmith_error", request_id=request_id, email=email, error=str(e))
+        return None
+
+
+def finish_trace(ctx, status: str, outputs: dict | None = None, error: str | None = None):
+    if not ctx:
+        return
+    try:
+        client = ctx["client"]
+        run_id = ctx["run_id"]
+        end_time = datetime.now(timezone.utc)
+        client.update_run(
+            run_id=run_id,
+            outputs=outputs or {},
+            error=error,
+            end_time=end_time,
+            status=status,
+        )
+    except Exception as e:  # best-effort
+        log_event("langsmith_error", error=str(e))
