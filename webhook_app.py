@@ -88,6 +88,7 @@ Output requirements:
         chunks: list[str] = []
 
         # Stream the response so Render logs show progress in real time
+        # Stream MCP + text; filter to text deltas to avoid SDK parse issues on mcp_tool_use blocks
         with client.beta.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=1200,
@@ -101,11 +102,13 @@ Output requirements:
                     "authorization_token": datagen_key,
                 }
             ],
+            tools=[{"type": "mcp_toolset", "mcp_server_name": "datagen"}],
             betas=["mcp-client-2025-04-04"],
             stream=True,
         ) as stream:
             for event in stream:
-                if getattr(event, "type", "") == "content_block_delta":
+                etype = getattr(event, "type", "")
+                if etype == "content_block_delta":
                     delta = getattr(event, "delta", None)
                     if delta and getattr(delta, "text", None):
                         chunk = delta.text
@@ -117,6 +120,7 @@ Output requirements:
                             chunk=chunk[:500],
                             truncated=len(chunk) > 500,
                         )
+                # ignore other MCP block types to avoid validation errors
 
         agent_text = "".join(chunks)
         log_event("success", request_id=request_id, email=email)
