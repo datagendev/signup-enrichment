@@ -135,8 +135,8 @@ def stream_raw_mcp_iter(request_id: str, email: str, system_prompt: str, user_me
         "Content-Type": "application/json",
         "X-API-Key": anthropic_key.strip(),
         "anthropic-version": "2023-06-01",
-        # Enable MCP connector + advanced toolset gating to allow mcp_toolset configs
-        "anthropic-beta": "mcp-client-2025-11-20,advanced-tool-use-2025-11-20",
+        # MCP connector beta (latest required for toolset)
+        "anthropic-beta": "mcp-client-2025-11-20",
     }
     body = {
         "model": "claude-sonnet-4-5",
@@ -151,20 +151,6 @@ def stream_raw_mcp_iter(request_id: str, email: str, system_prompt: str, user_me
                 "authorization_token": datagen_key.strip(),
             }
         ],
-        "tools": [
-            {
-                "type": "mcp_toolset",
-                "mcp_server_name": "datagen",
-                "default_config": {
-                    "enabled": False,
-                    "defer_loading": False,
-                },
-                "configs": {
-                    "getToolDetails": {"enabled": True, "defer_loading": False},
-                    "executeTool": {"enabled": True, "defer_loading": False},
-                },
-            }
-        ],
         "stream": True,
     }
 
@@ -173,7 +159,19 @@ def stream_raw_mcp_iter(request_id: str, email: str, system_prompt: str, user_me
 
     with httpx.Client(timeout=timeout) as client:
         with client.stream("POST", url, headers=headers, json=body) as r:
-            r.raise_for_status()
+            if r.status_code >= 400:
+                try:
+                    err_body = r.read().decode(errors="ignore")
+                except Exception:
+                    err_body = ""
+                log_event(
+                    "http_stream_error",
+                    request_id=request_id,
+                    email=email,
+                    status=r.status_code,
+                    body=err_body[:500],
+                )
+                r.raise_for_status()
             for line in r.iter_lines():
                 if not line:
                     continue
