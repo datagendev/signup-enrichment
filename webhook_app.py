@@ -88,8 +88,8 @@ Output requirements:
         chunks: list[str] = []
 
         # Stream the response so Render logs show progress in real time
-        # Stream MCP + text; filter to text deltas to avoid SDK parse issues on mcp_tool_use blocks
-        with client.beta.messages.create(
+        # Non-streaming to avoid Anthropic SDK MCP streaming parse errors; log full response
+        response = client.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=1200,
             system=system_prompt,
@@ -103,23 +103,24 @@ Output requirements:
                 }
             ],
             betas=["mcp-client-2025-04-04"],
-            stream=True,
-        ) as stream:
-            for event in stream:
-                etype = getattr(event, "type", "")
-                if etype == "content_block_delta":
-                    delta = getattr(event, "delta", None)
-                    if delta and getattr(delta, "text", None):
-                        chunk = delta.text
-                        chunks.append(chunk)
-                        log_event(
-                            "agent_chunk",
-                            request_id=request_id,
-                            email=email,
-                            chunk=chunk[:500],
-                            truncated=len(chunk) > 500,
-                        )
-                # ignore other MCP block types to avoid validation errors
+            stream=False,
+        )
+
+        # Log the raw response (JSON-safe)
+        try:
+            log_event(
+                "agent_raw_response",
+                request_id=request_id,
+                email=email,
+                response_json=response.model_dump(),
+            )
+        except Exception:
+            pass
+
+        if response and response.content:
+            for block in response.content:
+                if getattr(block, "type", "") == "text" and getattr(block, "text", None):
+                    chunks.append(block.text)
 
         agent_text = "".join(chunks)
         log_event("success", request_id=request_id, email=email)
