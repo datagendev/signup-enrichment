@@ -1,2 +1,5 @@
-claude-agent-sdk
-
+fastapi
+uvicorn
+anthropic
+pydantic
+datagen-python-sdk
