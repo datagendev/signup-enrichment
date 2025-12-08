@@ -11,8 +11,10 @@ from anthropic import Anthropic
 # Optional LangSmith tracing
 try:
     from langsmith import Client as LangSmithClient  # type: ignore
+    from langsmith import wrappers as ls_wrappers  # type: ignore
 except ImportError:  # pragma: no cover - optional dependency
     LangSmithClient = None
+    ls_wrappers = None
 
 app = FastAPI()
 
@@ -52,6 +54,17 @@ def run_enrichment_task(email: str):
         return
 
     client = Anthropic(api_key=anthropic_key)
+    # Auto-wrap Anthropic client for LangSmith tracing if configured
+    if ls_wrappers and os.getenv("LANGSMITH_API_KEY") and os.getenv("LANGSMITH_TRACING", "false").lower() == "true":
+        try:
+            client = ls_wrappers.wrap_anthropic(
+                client,
+                tracing_extra={
+                    "tags": ["webhook", "anthropic", "mcp"],
+                },
+            )
+        except Exception as e:  # best-effort
+            log_event("langsmith_error", request_id=request_id, email=email, error=str(e))
 
     system_prompt = _load_prompt()
 

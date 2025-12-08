@@ -4,3 +4,4 @@ anthropic
 pydantic
 datagen-python-sdk
 langsmith
+# wrappers already bundled in langsmith

@@ -15,3 +15,5 @@ services:
         sync: false
       - key: LANGSMITH_PROJECT
         value: signup-enrichment
+      - key: LANGSMITH_TRACING
+        value: "true"
