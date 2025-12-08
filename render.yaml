@@ -11,9 +11,3 @@ services:
         sync: false
       - key: PYTHON_VERSION
         value: 3.11.0
-      - key: LANGSMITH_API_KEY
-        sync: false
-      - key: LANGSMITH_PROJECT
-        value: signup-enrichment
-      - key: LANGSMITH_TRACING
-        value: "true"

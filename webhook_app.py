@@ -2,20 +2,11 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import FastAPI, BackgroundTasks
-from pydantic import BaseModel
-from anthropic import Anthropic
-import httpx
 
-# Optional LangSmith tracing
-try:
-    from langsmith import Client as LangSmithClient  # type: ignore
-    from langsmith import wrappers as ls_wrappers  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
-    LangSmithClient = None
-    ls_wrappers = None
+from fastapi import BackgroundTasks, FastAPI
+from pydantic import BaseModel
+import httpx
 
 app = FastAPI()
 
@@ -41,8 +32,6 @@ def run_enrichment_task(email: str):
     """
     request_id = str(uuid.uuid4())
     log_event("start", request_id=request_id, email=email)
-
-    trace_ctx = start_trace(request_id=request_id, email=email)
     
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
     datagen_key = os.getenv("DATAGEN_API_KEY")
@@ -53,19 +42,6 @@ def run_enrichment_task(email: str):
     if not datagen_key:
         log_event("config_error", request_id=request_id, error="DATAGEN_API_KEY not set")
         return
-
-    client = Anthropic(api_key=anthropic_key)
-    # Auto-wrap Anthropic client for LangSmith tracing if configured
-    if ls_wrappers and os.getenv("LANGSMITH_API_KEY") and os.getenv("LANGSMITH_TRACING", "false").lower() == "true":
-        try:
-            client = ls_wrappers.wrap_anthropic(
-                client,
-                tracing_extra={
-                    "tags": ["webhook", "anthropic", "mcp"],
-                },
-            )
-        except Exception as e:  # best-effort
-            log_event("langsmith_error", request_id=request_id, email=email, error=str(e))
 
     system_prompt = _load_prompt()
 
@@ -114,19 +90,8 @@ Output requirements:
                 truncated=len(agent_text) > 2000,
             )
 
-        finish_trace(
-            trace_ctx,
-            status="success",
-            outputs={
-                "email": email,
-                "agent_response": agent_text[:2000],
-                "truncated": len(agent_text) > 2000,
-            },
-        )
-
     except Exception as e:
         log_event("error", request_id=request_id, email=email, error=str(e))
-        finish_trace(trace_ctx, status="error", error=str(e))
 
 @app.post("/webhook/signup")
 async def receive_signup(payload: SignupPayload, background_tasks: BackgroundTasks):
@@ -159,8 +124,12 @@ def log_event(event: str, **data):
     logger.info(json.dumps(payload))
 
 
-def stream_raw_mcp(request_id: str, email: str, system_prompt: str, user_message: str, anthropic_key: str, datagen_key: str) -> str:
-    """Stream raw SSE from Anthropic MCP and return concatenated text."""
+def stream_raw_mcp_iter(request_id: str, email: str, system_prompt: str, user_message: str, anthropic_key: str, datagen_key: str):
+    """
+    Yield completed content blocks (text only) from Anthropic MCP streaming.
+    We buffer deltas per content block index and emit when content_block_stop arrives,
+    so logs aren't word-by-word.
+    """
     url = "https://api.anthropic.com/v1/messages"
     headers = {
         "Content-Type": "application/json",
@@ -184,74 +153,67 @@ def stream_raw_mcp(request_id: str, email: str, system_prompt: str, user_message
         "stream": True,
     }
 
+    timeout = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=None)
+    buffers: dict[int, dict[str, list[str]]] = {}
+
+    with httpx.Client(timeout=timeout) as client:
+        with client.stream("POST", url, headers=headers, json=body) as r:
+            r.raise_for_status()
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                line_str = line.decode() if isinstance(line, (bytes, bytearray)) else str(line)
+                if not line_str.startswith("data:"):
+                    continue
+                data = line_str[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    payload = json.loads(data)
+                    ptype = payload.get("type")
+                    if ptype == "content_block_delta":
+                        idx = payload.get("index", 0)
+                        delta = payload.get("delta", {})
+                        dtype = delta.get("type")
+                        if dtype == "text_delta":
+                            text = delta.get("text", "")
+                            if text:
+                                buffers.setdefault(idx, {"kind": "text", "parts": []})["parts"].append(text)
+                        elif dtype == "input_json_delta":
+                            part = delta.get("partial_json", "")
+                            if part:
+                                buffers.setdefault(idx, {"kind": "json", "parts": []})["parts"].append(part)
+                    elif ptype == "content_block_stop":
+                        idx = payload.get("index", 0)
+                        buf = buffers.pop(idx, None)
+                        if buf and buf.get("parts"):
+                            joined = "".join(buf["parts"])
+                            if buf.get("kind") == "json":
+                                # best-effort parse
+                                try:
+                                    parsed = json.loads(joined)
+                                    joined = json.dumps(parsed)
+                                except Exception:
+                                    pass
+                            log_event(
+                                "agent_chunk",
+                                request_id=request_id,
+                                email=email,
+                                chunk=joined[:500],
+                                truncated=len(joined) > 500,
+                            )
+                            yield joined
+                except Exception as e:
+                    log_event("agent_chunk_parse_error", request_id=request_id, email=email, error=str(e))
+                    continue
+
+
+def stream_raw_mcp(request_id: str, email: str, system_prompt: str, user_message: str, anthropic_key: str, datagen_key: str) -> str:
+    """Collect all text from streaming iterator."""
     chunks: list[str] = []
     try:
-        with httpx.Client(timeout=120) as client:
-            with client.stream("POST", url, headers=headers, json=body) as r:
-                for line in r.iter_lines():
-                    if not line or not line.startswith(b"data:"):
-                        continue
-                    data = line[len(b"data:"):].strip()
-                    if data == b"[DONE]":
-                        break
-                    try:
-                        payload = json.loads(data)
-                        log_event("agent_raw_chunk", request_id=request_id, email=email, chunk=payload)
-                        if payload.get("type") == "content_block_delta":
-                            delta = payload.get("delta", {})
-                            text = delta.get("text")
-                            if text:
-                                chunks.append(text)
-                                log_event(
-                                    "agent_chunk",
-                                    request_id=request_id,
-                                    email=email,
-                                    chunk=text[:500],
-                                    truncated=len(text) > 500,
-                                )
-                    except Exception as e:
-                        log_event("agent_chunk_parse_error", request_id=request_id, email=email, error=str(e))
-                        continue
+        for text in stream_raw_mcp_iter(request_id, email, system_prompt, user_message, anthropic_key, datagen_key):
+            chunks.append(text)
     except Exception as e:
         log_event("http_stream_error", request_id=request_id, email=email, error=str(e))
     return "".join(chunks)
-
-
-def start_trace(request_id: str, email: str):
-    """Start a LangSmith trace if configured."""
-    if not LangSmithClient or not os.getenv("LANGSMITH_API_KEY"):
-        return None
-    try:
-        client = LangSmithClient()
-        project = os.getenv("LANGSMITH_PROJECT", "signup-enrichment")
-        run_id = client.create_run(
-            name="enrichment-webhook",
-            run_type="chain",
-            inputs={"email": email},
-            project=project,
-            start_time=datetime.now(timezone.utc),
-            tags=["webhook", "anthropic", "mcp"],
-            reference_example_id=request_id,
-        )
-        return {"client": client, "run_id": run_id, "start_time": datetime.now(timezone.utc)}
-    except Exception as e:  # best-effort
-        log_event("langsmith_error", request_id=request_id, email=email, error=str(e))
-        return None
-
-
-def finish_trace(ctx, status: str, outputs: dict | None = None, error: str | None = None):
-    if not ctx:
-        return
-    try:
-        client = ctx["client"]
-        run_id = ctx["run_id"]
-        end_time = datetime.now(timezone.utc)
-        client.update_run(
-            run_id=run_id,
-            outputs=outputs or {},
-            error=error,
-            end_time=end_time,
-            status=status,
-        )
-    except Exception as e:  # best-effort
-        log_event("langsmith_error", error=str(e))

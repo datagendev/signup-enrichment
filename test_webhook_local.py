@@ -10,6 +10,7 @@ Reads .env if present to pick up ANTHROPIC_API_KEY, DATAGEN_API_KEY, etc.
 
 import os
 from pathlib import Path
+import time
 
 from fastapi.testclient import TestClient
 from webhook_app import app
@@ -35,7 +36,12 @@ def main():
     print("status", resp.status_code)
     print("json", resp.json())
 
+    # Allow background task to finish and logs to flush
+    wait_seconds = int(os.environ.get("TEST_WAIT_SECONDS", "8"))
+    if wait_seconds > 0:
+        print(f"Waiting {wait_seconds}s for background enrichment logs...")
+        time.sleep(wait_seconds)
+
 
 if __name__ == "__main__":
     main()
-
