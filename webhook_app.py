@@ -150,6 +150,20 @@ def stream_raw_mcp_iter(request_id: str, email: str, system_prompt: str, user_me
                 "authorization_token": datagen_key.strip(),
             }
         ],
+        "tools": [
+            {
+                "type": "mcp_toolset",
+                "mcp_server_name": "datagen",
+                "default_config": {
+                    "enabled": False,
+                    "defer_loading": False,
+                },
+                "configs": {
+                    "getToolDetails": {"enabled": True},
+                    "executeTool": {"enabled": True},
+                },
+            }
+        ],
         "stream": True,
     }
 
