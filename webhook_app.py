@@ -6,7 +6,15 @@ from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI
 from pydantic import BaseModel
+import asyncio
 import httpx
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    TextBlock,
+    ToolUseBlock,
+    query,
+)
 
 app = FastAPI()
 
@@ -124,115 +132,60 @@ def log_event(event: str, **data):
     logger.info(json.dumps(payload))
 
 
-def stream_raw_mcp_iter(request_id: str, email: str, system_prompt: str, user_message: str, anthropic_key: str, datagen_key: str):
-    """
-    Yield completed content blocks (text only) from Anthropic MCP streaming.
-    We buffer deltas per content block index and emit when content_block_stop arrives,
-    so logs aren't word-by-word.
-    """
-    url = "https://api.anthropic.com/v1/messages"
-    headers = {
-        "Content-Type": "application/json",
-        "X-API-Key": anthropic_key.strip(),
-        "anthropic-version": "2023-06-01",
-        # MCP connector beta (latest required for toolset)
-        "anthropic-beta": "mcp-client-2025-11-20",
-    }
-    body = {
-        "model": "claude-sonnet-4-5",
-        "max_tokens": 1200,
-        "system": system_prompt,
-        "messages": [{"role": "user", "content": user_message}],
-        "mcp_servers": [
-            {
-                "type": "url",
+async def run_agent_sdk(request_id: str, email: str, system_prompt: str, user_message: str, datagen_key: str) -> str:
+    """Use Anthropic Agent SDK to stream MCP interaction."""
+    opts = ClaudeAgentOptions(
+        model="claude-sonnet-4-5",
+        system=system_prompt,
+        mcp_servers={
+            "datagen": {
+                "type": "sse",
                 "url": "https://mcp.datagen.dev/mcp",
-                "name": "datagen",
-                "authorization_token": datagen_key.strip(),
+                "headers": {"Authorization": f"Bearer {datagen_key.strip()}"},
             }
-        ],
-        "tools": [
-            {
-                "type": "mcp_toolset",
-                "mcp_server_name": "datagen",
-            }
-        ],
-        "stream": True,
-    }
+        },
+        # allow full toolset; permissioning handled by MCP
+    )
 
-    timeout = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=None)
-    buffers: dict[int, dict[str, list[str]]] = {}
-
-    with httpx.Client(timeout=timeout) as client:
-        with client.stream("POST", url, headers=headers, json=body) as r:
-            if r.status_code >= 400:
-                try:
-                    err_body = r.read().decode(errors="ignore")
-                except Exception:
-                    err_body = ""
-                log_event(
-                    "http_stream_error",
-                    request_id=request_id,
-                    email=email,
-                    status=r.status_code,
-                    body=err_body[:500],
-                )
-                r.raise_for_status()
-            for line in r.iter_lines():
-                if not line:
-                    continue
-                line_str = line.decode() if isinstance(line, (bytes, bytearray)) else str(line)
-                if not line_str.startswith("data:"):
-                    continue
-                data = line_str[5:].strip()
-                if data == "[DONE]":
-                    break
-                try:
-                    payload = json.loads(data)
-                    ptype = payload.get("type")
-                    if ptype == "content_block_delta":
-                        idx = payload.get("index", 0)
-                        delta = payload.get("delta", {})
-                        dtype = delta.get("type")
-                        if dtype == "text_delta":
-                            text = delta.get("text", "")
-                            if text:
-                                buffers.setdefault(idx, {"kind": "text", "parts": []})["parts"].append(text)
-                        elif dtype == "input_json_delta":
-                            part = delta.get("partial_json", "")
-                            if part:
-                                buffers.setdefault(idx, {"kind": "json", "parts": []})["parts"].append(part)
-                    elif ptype == "content_block_stop":
-                        idx = payload.get("index", 0)
-                        buf = buffers.pop(idx, None)
-                        if buf and buf.get("parts"):
-                            joined = "".join(buf["parts"])
-                            if buf.get("kind") == "json":
-                                # best-effort parse
-                                try:
-                                    parsed = json.loads(joined)
-                                    joined = json.dumps(parsed)
-                                except Exception:
-                                    pass
-                            log_event(
-                                "agent_chunk",
-                                request_id=request_id,
-                                email=email,
-                                chunk=joined[:500],
-                                truncated=len(joined) > 500,
-                            )
-                            yield joined
-                except Exception as e:
-                    log_event("agent_chunk_parse_error", request_id=request_id, email=email, error=str(e))
-                    continue
+    collected: list[str] = []
+    try:
+        async for msg in query(prompt=user_message, options=opts):
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        text = block.text
+                        collected.append(text)
+                        log_event(
+                            "agent_chunk",
+                            request_id=request_id,
+                            email=email,
+                            chunk=text[:500],
+                            truncated=len(text) > 500,
+                        )
+                    elif isinstance(block, ToolUseBlock):
+                        log_event(
+                            "agent_tool_use",
+                            request_id=request_id,
+                            email=email,
+                            name=block.name,
+                            input=block.input,
+                        )
+            else:
+                # non-assistant messages (e.g., system or tool results) can be logged for debug
+                log_event("agent_event", request_id=request_id, email=email, event=str(msg))
+    except Exception as e:
+        log_event("http_stream_error", request_id=request_id, email=email, error=str(e))
+    return "".join(collected)
 
 
 def stream_raw_mcp(request_id: str, email: str, system_prompt: str, user_message: str, anthropic_key: str, datagen_key: str) -> str:
-    """Collect all text from streaming iterator."""
-    chunks: list[str] = []
-    try:
-        for text in stream_raw_mcp_iter(request_id, email, system_prompt, user_message, anthropic_key, datagen_key):
-            chunks.append(text)
-    except Exception as e:
-        log_event("http_stream_error", request_id=request_id, email=email, error=str(e))
-    return "".join(chunks)
+    """Sync wrapper to run the async agent SDK from background task."""
+    return asyncio.run(
+        run_agent_sdk(
+            request_id=request_id,
+            email=email,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            datagen_key=datagen_key,
+        )
+    )

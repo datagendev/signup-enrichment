@@ -3,3 +3,4 @@ uvicorn
 anthropic
 pydantic
 datagen-python-sdk
+claude-agent-sdk
