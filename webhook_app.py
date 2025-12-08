@@ -33,8 +33,8 @@ def run_enrichment_task(email: str):
     request_id = str(uuid.uuid4())
     log_event("start", request_id=request_id, email=email)
     
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    datagen_key = os.getenv("DATAGEN_API_KEY")
+    anthropic_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
+    datagen_key = (os.getenv("DATAGEN_API_KEY") or "").strip()
 
     if not anthropic_key:
         log_event("config_error", request_id=request_id, error="ANTHROPIC_API_KEY not set")
@@ -133,7 +133,7 @@ def stream_raw_mcp_iter(request_id: str, email: str, system_prompt: str, user_me
     url = "https://api.anthropic.com/v1/messages"
     headers = {
         "Content-Type": "application/json",
-        "X-API-Key": anthropic_key,
+        "X-API-Key": anthropic_key.strip(),
         "anthropic-version": "2023-06-01",
         "anthropic-beta": "mcp-client-2025-04-04",
     }
@@ -147,7 +147,7 @@ def stream_raw_mcp_iter(request_id: str, email: str, system_prompt: str, user_me
                 "type": "url",
                 "url": "https://mcp.datagen.dev/mcp",
                 "name": "datagen",
-                "authorization_token": datagen_key,
+                "authorization_token": datagen_key.strip(),
             }
         ],
         "stream": True,
